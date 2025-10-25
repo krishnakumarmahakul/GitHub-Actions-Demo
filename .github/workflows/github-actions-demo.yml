@@ -1,30 +1,57 @@
-name: GitHub Actions Demo
-run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
-on: [push]
+name: Node.js CI — Jest tests
+run-name: ${{ github.actor }} — run Jest tests on push & PR
+
+# Trigger on push and pull request so tests run for branches and PRs
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
 jobs:
-  Explore-GitHub-Actions:
+  test:
+    name: Run tests (Jest + Supertest)
     runs-on: ubuntu-latest
+
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
-      - name: Check out repository code
+      # 1) Checkout the repository so the runner has the code
+      - name: Check out repository
         uses: actions/checkout@v5
-      - run: echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-      - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-      - name: List files in the repository
-        run: |
-          ls ${{ github.workspace }}
+
+      # 2) Set up Node.js environment (use the version your app targets)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
+      # 3) Install dependencies. Use npm ci when package-lock.json exists for reproducible installs.
       - name: Install dependencies
         run: |
-          npm ci --silent || npm install --no-audit --no-fund --silent
+          echo "Installing dependencies..."
+          npm ci
 
-      - name: Run tests
-        run: npm test --silent
+      # 4) Run tests with Jest. We ask Jest to emit a JSON results file so we can upload it as an artifact
+      #    Note: `npm test -- --json --outputFile=jest-results.json` appends the JSON flags to the jest command
+      - name: Run tests (Jest + Supertest)
+        run: |
+          echo "Running tests..."
+          npm test -- --runInBand --json --outputFile=jest-results.json
 
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+      # 5) Upload test results (always run this step so we get results even if tests fail)
+      - name: Upload Jest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-results
+          path: jest-results.json
+
+      # 6) Helpful debug: list workspace files so you can see where artifacts landed
+      - name: List workspace
+        if: always()
+        run: ls -la
+
+      # Final status note (for readability in simple workflows)
+      - name: Workflow finished
+        if: always()
+        run: |
+          echo "Workflow completed with job status: ${{ job.status }}"
