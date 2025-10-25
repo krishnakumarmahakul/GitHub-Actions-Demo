@@ -11,8 +11,7 @@ router.get('/', (req, res) => {
 
 // POST /todos
 router.post('/', (req, res) => {
-  // <-- Intentional bug: typo `req.bod` instead of `req.body` to cause a runtime error in CI
-  const { title, completed = false } = req.bod;
+  const { title, completed = false } = req.body;
   if (!title) return res.status(400).json({ error: 'title is required' });
   const todo = { id: nextId++, title, completed: Boolean(completed) };
   todos.push(todo);
