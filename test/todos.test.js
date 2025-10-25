@@ -59,4 +59,10 @@ describe('Todos API (integration)', () => {
     const res = await request(app).get(`/todos/${created.id}`);
     expect(res.status).toBe(404);
   });
+
+  // Intentional failing test to demonstrate CI failure reporting
+  test('INTENTIONAL FAILURE to show CI error reporting', () => {
+    // This assertion is wrong on purpose — it will fail in CI and locally.
+    expect(1).toBe(2);
+  });
 });
