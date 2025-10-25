@@ -10,4 +10,10 @@ app.get('/', (req, res) => res.json({ message: 'Express Demo Todos API' }));
 app.use('/health', healthRouter);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+
+// Only start the server if this file is run directly.
+if (require.main === module) {
+	app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+}
+
+module.exports = app;
