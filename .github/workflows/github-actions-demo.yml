@@ -1,57 +1,114 @@
-name: Node.js CI — Jest tests
-run-name: ${{ github.actor }} — run Jest tests on push & PR
+# Display name of the workflow in the Actions UI
+name: Node.js CI — Jest tests + Docker image Integratioin 
+# Dynamic run name showing who triggered it
+run-name: ${{ github.actor }} — run tests and build/push Docker image
 
-# Trigger on push and pull request so tests run for branches and PRs
+# Triggers for this workflow
 on:
   push:
-    branches: ['**']
+    # Run on pushes to any branch
+    branches: ["**"]
   pull_request:
-    branches: ['**']
+    # Run on PRs targeting any branch
+    branches: ["**"]
 
 jobs:
+  # First job: run unit/integration tests
   test:
+    # Job display name
     name: Run tests (Jest + Supertest)
+    # Use the latest Ubuntu runner hosted by GitHub
     runs-on: ubuntu-latest
-
     steps:
-      # 1) Checkout the repository so the runner has the code
+      # Pull the repository code onto the runner
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      # 2) Set up Node.js environment (use the version your app targets)
+      # Install the requested Node.js version for this job
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          # Node version to use
+          node-version: "18"
 
-      # 3) Install dependencies. Use npm ci when package-lock.json exists for reproducible installs.
+      # Clean install dependencies from package-lock.json
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
           npm ci
 
-      # 4) Run tests with Jest. We ask Jest to emit a JSON results file so we can upload it as an artifact
-      #    Note: `npm test -- --json --outputFile=jest-results.json` appends the JSON flags to the jest command
+      # Run Jest tests (serial), output JSON results file
       - name: Run tests (Jest + Supertest)
         run: |
           echo "Running tests..."
           npm test -- --runInBand --json --outputFile=jest-results.json
 
-      # 5) Upload test results (always run this step so we get results even if tests fail)
+      # Always upload test results (even if tests fail)
       - name: Upload Jest results
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          # Artifact name as it will appear in the run
           name: jest-results
+          # Path to the generated results file
           path: jest-results.json
 
-      # 6) Helpful debug: list workspace files so you can see where artifacts landed
+      # Optional: list files to help with debugging
       - name: List workspace
         if: always()
         run: ls -la
 
-      # Final status note (for readability in simple workflows)
+      # Print final job status (success/failure/cancelled)
       - name: Workflow finished
         if: always()
         run: |
           echo "Workflow completed with job status: ${{ job.status }}"
+
+  # Second job: build and publish Docker image (only if tests passed)
+  docker:
+    # Job display name
+    name: Build and push Docker image (:latest)
+    # Use Ubuntu runner
+    runs-on: ubuntu-latest
+    # Wait for the 'test' job to complete first
+    needs: test
+    # Only run if the 'test' job succeeded
+    if: ${{ needs.test.result == 'success' }} # Only publish if tests passed
+    # Minimal permissions required by this job
+    permissions:
+      contents: read # read the repo contents
+      packages: write # needed to push to GHCR
+    steps:
+      # Pull the repository code for this job as well
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Enable Docker Buildx (advanced builder with caching/multi-arch)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Compute the final image name for GHCR: ghcr.io/<owner>/<repo> (lowercased)
+      - name: Set image name (ghcr.io/owner/repo)
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # Log in to GitHub Container Registry using the workflow token
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io # target registry
+          username: ${{ github.actor }} # actor name as username
+          password: ${{ secrets.GITHUB_TOKEN }} # built-in token; no PAT needed
+
+      # Build the Docker image and push two tags: latest and commit SHA
+      - name: Build and push (latest + sha)
+        uses: docker/build-push-action@v6
+        with:
+          context: . # build context (repo root)
+          file: ./Dockerfile # Dockerfile path
+          push: true # actually push to the registry
+          tags: | # image tags to push
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha # use GitHub Actions cache
+          cache-to: type=gha,mode=max # save cache for faster subsequent builds
